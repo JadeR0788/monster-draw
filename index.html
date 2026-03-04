@@ -14,6 +14,7 @@
       --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
       --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
     }
+
     *{box-sizing:border-box}
     html,body{height:100%}
     body{
@@ -23,6 +24,7 @@
       color: var(--text);
       overflow-x:hidden;
     }
+
     body:before{
       content:"";
       position:fixed; inset:-40px;
@@ -245,8 +247,10 @@
       width: 100%;
     }
 
+    /* ✅ centred reels always */
     .slotFrame{
       display:flex;
+      justify-content:center;
       gap: 10px;
       padding: 14px 16px;
       border-radius: 22px;
@@ -254,9 +258,11 @@
       border: 1px solid rgba(0,0,0,.08);
       box-shadow: 0 18px 40px rgba(0,0,0,.14);
       align-items:center;
-      justify-content:center;
       position:relative;
       overflow:hidden;
+
+      min-height: 140px;
+      width: min(760px, 94vw);
     }
 
     .slotFrame:before{
@@ -289,6 +295,8 @@
       width:100%;
       transform: translateY(0px);
       will-change: transform;
+      opacity: 0; /* ✅ blank on load */
+      transition: opacity 180ms ease;
     }
 
     .digit{
@@ -416,13 +424,13 @@
 
       <div class="hostRow">
         <label for="hostName">Host name (required)</label>
-        <input id="hostName" type="text" placeholder="e.g., Jade Rooke" autocomplete="name" />
+        <input id="hostName" type="text" placeholder="Name Here" autocomplete="name" />
       </div>
 
       <div class="warn" id="warn">Please enter the host name to enable the draw.</div>
 
       <div class="winnerBlock">
-        <p class="congrats" id="congratsText">Congratulations Lasseters Rewards Member…</p>
+        <p class="congrats">Congratulations Lasseters Rewards Member…</p>
 
         <div class="slotWrap">
           <div class="slotFrame" id="slotFrame"></div>
@@ -447,8 +455,8 @@
   </main>
 
   <script>
-    const AUDIT_KEY = "monster_draw_audit_v5";
-    const SESSION_KEY = "monster_draw_session_v5";
+    const AUDIT_KEY = "monster_draw_audit_v7";
+    const SESSION_KEY = "monster_draw_session_v7";
 
     const aMinEl = document.getElementById("aMin");
     const aMaxEl = document.getElementById("aMax");
@@ -466,7 +474,6 @@
     const slotLabelEl = document.getElementById("slotLabel");
     const stageEl = document.getElementById("stage");
 
-    // ---------- session + audit ----------
     function getSessionId(){
       let sid = localStorage.getItem(SESSION_KEY);
       if (!sid){
@@ -499,7 +506,6 @@
       return n;
     }
 
-    // Uniform integer in [min, max] using rejection sampling (no modulo bias)
     function cryptoIntInclusive(min, max){
       const range = max - min + 1;
       if (range <= 0) throw new Error("Invalid range");
@@ -517,7 +523,6 @@
       }
     }
 
-    // Equal chance across BOTH ranges: draw one uniform index across combined pool
     function drawAcrossTwoRanges(A, B){
       const sizeA = (A.max - A.min + 1);
       const sizeB = (B.max - B.min + 1);
@@ -538,9 +543,7 @@
       try{
         video.currentTime = 0;
         video.play();
-      } catch(e){
-        // If autoplay is blocked, user can click the video once to allow playback.
-      }
+      } catch(e){}
     }
 
     function validateHost(){
@@ -615,7 +618,7 @@
 
     // ---------- SLOT REELS ----------
     let reels = [];
-    let digitH = 100; // will be updated after render
+    let digitH = 100;
 
     function makeReels(count){
       slotFrameEl.innerHTML = "";
@@ -628,8 +631,6 @@
         const inner = document.createElement("div");
         inner.className = "reelInner";
 
-        // Build a long strip so it can "spin" convincingly.
-        // Repeat 0-9 many times.
         const repeats = 22;
         for (let r=0;r<repeats;r++){
           for (let d=0; d<=9; d++){
@@ -645,50 +646,58 @@
         reels.push({ reel, inner, offset: 0 });
       }
 
-      // measure actual digit height from first cell
       const firstDigit = slotFrameEl.querySelector(".digit");
       digitH = firstDigit ? firstDigit.getBoundingClientRect().height : 100;
 
-      // start at random positions
+      // blank on load
       reels.forEach((r) => {
-        const start = cryptoIntInclusive(0, 9);
-        r.offset = start * digitH;
-        r.inner.style.transform = `translateY(${-r.offset}px)`;
+        r.offset = 0;
+        r.inner.style.transform = `translateY(0px)`;
+        r.inner.style.opacity = "0";
       });
     }
 
     function easeOutCubic(t){ return 1 - Math.pow(1 - t, 3); }
 
-    function spinToNumber(finalNumberStr){
-      // Stagger each reel stop (slot style)
-      const totalDuration = 1900;         // base ms
-      const stagger = 170;                // per reel ms
-      const extraTurnsMin = 14;           // extra digits cycles
+    // ✅ Centred reels; if number shorter than reel count, leave leading reels empty
+    function spinToNumberWithLeadingBlank(finalRawStr){
+      const totalDuration = 1900;
+      const stagger = 170;
+      const extraTurnsMin = 14;
       const extraTurnsMax = 22;
 
       slotFrameEl.classList.remove("slotFlash");
 
+      const digits = reels.length;
+      const leadBlanks = Math.max(0, digits - finalRawStr.length);
+      const targets = finalRawStr.split("").map(ch => Number(ch));
+
+      // set visibility: leading blanks hidden; rest visible
+      reels.forEach((r, i) => {
+        if (i < leadBlanks){
+          r.inner.style.opacity = "0";   // ✅ empty first box (or boxes)
+        } else {
+          r.inner.style.opacity = "1";   // show + spin
+        }
+      });
+
       const startTime = performance.now();
-      const targets = finalNumberStr.split("").map(ch => Number(ch));
 
-      // We spin from current offset to a target offset far down the strip.
       const plans = reels.map((r, i) => {
+        if (i < leadBlanks) return { skip:true };
+
+        const targetDigit = targets[i - leadBlanks];
         const extraTurns = cryptoIntInclusive(extraTurnsMin, extraTurnsMax);
-        const targetDigit = targets[i];
 
-        // current visible digit approximation
         const currentIndex = Math.round(r.offset / digitH) % 10;
-
-        // We want to end on targetDigit after many full cycles.
-        // Steps to reach target (forward only)
         const forwardSteps = (targetDigit - currentIndex + 10) % 10;
         const totalSteps = extraTurns * 10 + forwardSteps;
 
         const startOffset = r.offset;
         const endOffset = startOffset + totalSteps * digitH;
 
-        const duration = totalDuration + i * stagger;
-        return { startOffset, endOffset, duration };
+        const duration = totalDuration + (i - leadBlanks) * stagger;
+        return { skip:false, startOffset, endOffset, duration };
       });
 
       return new Promise(resolve => {
@@ -697,6 +706,8 @@
 
           reels.forEach((r, i) => {
             const p = plans[i];
+            if (p.skip) return;
+
             const t = Math.min(1, (now - startTime) / p.duration);
             const eased = easeOutCubic(t);
             const current = p.startOffset + (p.endOffset - p.startOffset) * eased;
@@ -718,20 +729,21 @@
       });
     }
 
-    // Ensure reels exist on load using the max possible digits
     function ensureReelCount(){
       const Amax = Number(aMaxEl.value || 0);
       const Bmax = Number(bMaxEl.value || 0);
       const maxVal = Math.max(Amax, Bmax, 0);
       const digits = Math.max(1, String(maxVal).length);
       if (reels.length !== digits) makeReels(digits);
+
+      // keep blank until draw
+      reels.forEach(r => r.inner.style.opacity = "0");
     }
 
     aMaxEl.addEventListener("input", ensureReelCount);
     bMaxEl.addEventListener("input", ensureReelCount);
     ensureReelCount();
 
-    // ---------- main draw ----------
     drawBtn.addEventListener("click", async () => {
       try{
         const host = (hostEl.value || "").trim();
@@ -750,35 +762,26 @@
 
         ensureReelCount();
 
-        // lock UI during spin
         drawBtn.disabled = true;
         slotLabelEl.textContent = "Spinning…";
         tsEl.textContent = "Drawing…";
         stageEl.classList.remove("reveal");
 
-        // compute winner immediately (audit uses real click time)
         const { result, chosen } = drawAcrossTwoRanges(A, B);
         const stamp = nowStamp();
         const sessionId = getSessionId();
 
-        // pad number to reel count (so each reel has a digit)
-        const digits = reels.length;
-        const finalStr = String(result).padStart(digits, "0");
+        const finalRaw = String(result); // no leading zeros
+        await spinToNumberWithLeadingBlank(finalRaw);
 
-        // spin reels to final number
-        await spinToNumber(finalStr);
-
-        // reveal moment
         stageEl.classList.add("reveal");
         slotLabelEl.textContent = "Winner revealed!";
         tsEl.textContent = `Drawn ${stamp.local}  |  UTC: ${stamp.utc}`;
         playMonster();
         launchConfetti();
 
-        // re-enable draw button (host still required)
         validateHost();
 
-        // Save audit
         const entry = {
           drawName: "Wednesday MONSTER Members Draw",
           host,
