@@ -110,12 +110,29 @@
   </div>
 
   <script>
-    const AUDIT_KEY = "monster_draw_audit_v3";
+    // ✅ Read from the stable key first, then fall back to older versions
+    const AUDIT_KEYS = [
+      "monster_draw_audit",      // recommended stable key (future-proof)
+      "monster_draw_audit_v7",
+      "monster_draw_audit_v6",
+      "monster_draw_audit_v5",
+      "monster_draw_audit_v4",
+      "monster_draw_audit_v3"
+    ];
+
     const auditBox = document.getElementById("auditBox");
 
-    function loadAudit(){
-      try { return JSON.parse(localStorage.getItem(AUDIT_KEY) || "[]"); }
+    function readKey(key){
+      try { return JSON.parse(localStorage.getItem(key) || "[]"); }
       catch { return []; }
+    }
+
+    function loadAudit(){
+      for (const key of AUDIT_KEYS){
+        const entries = readKey(key);
+        if (Array.isArray(entries) && entries.length) return { keyUsed: key, entries };
+      }
+      return { keyUsed: null, entries: [] };
     }
 
     function escapeCSV(value){
@@ -136,9 +153,10 @@
       URL.revokeObjectURL(url);
     }
 
-    function formatAudit(entries){
+    function formatAudit(entries, keyUsed){
       if (!entries.length) return "No audit entries yet.\n\nGo back to the draw page and run a draw.";
-      return entries.map((e, i) => {
+      const header = keyUsed ? `Loaded from: ${keyUsed}\n\n` : "";
+      return header + entries.map((e, i) => {
         return [
           `#${i+1}`,
           `  drawName: ${e.drawName}`,
@@ -160,8 +178,8 @@
     }
 
     function render(){
-      const entries = loadAudit();
-      auditBox.textContent = formatAudit(entries);
+      const { keyUsed, entries } = loadAudit();
+      auditBox.textContent = formatAudit(entries, keyUsed);
     }
 
     document.getElementById("btnRefresh").addEventListener("click", render);
@@ -172,19 +190,20 @@
 
     document.getElementById("btnClear").addEventListener("click", () => {
       if (!confirm("Clear the audit log? This cannot be undone.")) return;
-      localStorage.removeItem(AUDIT_KEY);
+      // ✅ Clear ALL versions
+      AUDIT_KEYS.forEach(k => localStorage.removeItem(k));
       render();
     });
 
     document.getElementById("btnExportJSON").addEventListener("click", () => {
-      const entries = loadAudit();
+      const { entries } = loadAudit();
       if (!entries.length) return alert("No audit entries to export.");
       const fname = `monster-draw-audit_${new Date().toISOString().slice(0,10)}.json`;
       downloadFile(fname, JSON.stringify(entries, null, 2), "application/json");
     });
 
     document.getElementById("btnExportCSV").addEventListener("click", () => {
-      const entries = loadAudit();
+      const { entries } = loadAudit();
       if (!entries.length) return alert("No audit entries to export.");
 
       const header = [
