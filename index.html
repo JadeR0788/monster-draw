@@ -8,7 +8,6 @@
     :root{
       --brand:#3cadc0;
       --text:#0b0f12;
-      --muted: rgba(0,0,0,.55);
       --shadow: 0 18px 50px rgba(0,0,0,.18);
       --radius: 22px;
       --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
@@ -23,6 +22,8 @@
       color: var(--text);
       overflow-x:hidden;
     }
+
+    /* party pattern */
     body:before{
       content:"";
       position:fixed; inset:-40px;
@@ -81,6 +82,10 @@
       box-shadow: 0 10px 26px rgba(0,0,0,.14);
       transition: transform .06s ease, filter .15s ease, opacity .15s ease;
       letter-spacing:.2px;
+      text-decoration:none;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
     }
     .btn:hover{ filter: brightness(1.02); }
     .btn:active{ transform: translateY(1px); }
@@ -236,7 +241,6 @@
       text-shadow: 0 10px 22px rgba(0,0,0,.10);
     }
 
-    /* --- SLOT MACHINE NUMBER --- */
     .slotWrap{
       display:grid;
       justify-items:center;
@@ -452,7 +456,7 @@
   </main>
 
   <script>
-    // ✅ stable keys so audit + draw always match
+    // Stable keys so draw + audit always match
     const AUDIT_KEY = "monster_draw_audit";
     const SESSION_KEY = "monster_draw_session";
 
@@ -472,7 +476,6 @@
     const slotLabelEl = document.getElementById("slotLabel");
     const stageEl = document.getElementById("stage");
 
-    // ---------- session + audit ----------
     function getSessionId(){
       let sid = localStorage.getItem(SESSION_KEY);
       if (!sid){
@@ -523,7 +526,7 @@
       }
     }
 
-    // Equal chance across BOTH ranges: draw one uniform index across combined pool
+    // Equal chance across BOTH ranges: uniform index across combined pool
     function drawAcrossTwoRanges(A, B){
       const sizeA = (A.max - A.min + 1);
       const sizeB = (B.max - B.min + 1);
@@ -556,7 +559,7 @@
     hostEl.addEventListener("input", validateHost);
     validateHost();
 
-    // ---------- confetti ----------
+    // Confetti
     const confettiCanvas = document.getElementById("confetti");
     const ctx = confettiCanvas.getContext("2d");
 
@@ -617,7 +620,7 @@
       requestAnimationFrame(tick);
     }
 
-    // ---------- SLOT REELS ----------
+    // SLOT REELS
     let reels = [];
     let digitH = 100;
 
@@ -632,13 +635,12 @@
         const inner = document.createElement("div");
         inner.className = "reelInner";
 
-        // Build a long strip (repeated 0-9) for smooth spins
         const repeats = 22;
         for (let r=0;r<repeats;r++){
           for (let d=0; d<=9; d++){
             const cell = document.createElement("div");
             cell.className = "digit";
-            cell.textContent = d; // ✅ includes 0 as a digit
+            cell.textContent = d; // includes 0
             inner.appendChild(cell);
           }
         }
@@ -652,18 +654,30 @@
       digitH = firstDigit ? firstDigit.getBoundingClientRect().height : 100;
 
       // blank on load
-      reels.forEach((r) => {
+      reels.forEach(r => {
         r.offset = 0;
         r.inner.style.transform = `translateY(0px)`;
         r.inner.style.opacity = "0";
-        r.reel.style.visibility = "visible";
       });
     }
 
+    function ensureReelCount(){
+      const Amax = Number(aMaxEl.value || 0);
+      const Bmax = Number(bMaxEl.value || 0);
+      const maxVal = Math.max(Amax, Bmax, 0);
+      const digits = Math.max(1, String(maxVal).length);
+      if (reels.length !== digits) makeReels(digits);
+
+      // keep blank until draw
+      reels.forEach(r => r.inner.style.opacity = "0");
+    }
+    aMaxEl.addEventListener("input", ensureReelCount);
+    bMaxEl.addEventListener("input", ensureReelCount);
+    ensureReelCount();
+
     function easeOutCubic(t){ return 1 - Math.pow(1 - t, 3); }
 
-    // ✅ Only leading reels are blanked. Zeros ALWAYS display.
-    async function spinToNumberWithLeadingBlank(finalRawStr){
+    async function spinToNumber(finalStr){
       const totalDuration = 1900;
       const stagger = 170;
       const extraTurnsMin = 14;
@@ -671,31 +685,19 @@
 
       slotFrameEl.classList.remove("slotFlash");
 
-      const digits = reels.length;
-      const leadBlanks = Math.max(0, digits - finalRawStr.length);
+      // show reels as soon as we spin
+      reels.forEach(r => r.inner.style.opacity = "1");
 
-      // show/hide reels (NOT based on digit values, only based on position)
-      reels.forEach((r, i) => {
-        if (i < leadBlanks){
-          r.inner.style.opacity = "0";       // blank reel(s) on the left
-        } else {
-          r.inner.style.opacity = "1";       // visible reels
-        }
-      });
-
-      const targets = finalRawStr.split("").map(ch => {
-        // ch is a character '0'..'9' (zero is valid)
+      const targets = finalStr.split("").map(ch => {
         const n = Number(ch);
-        if (!Number.isInteger(n) || n < 0 || n > 9) throw new Error("Invalid digit in result");
+        if (!Number.isInteger(n) || n < 0 || n > 9) throw new Error("Invalid digit");
         return n;
       });
 
       const startTime = performance.now();
 
       const plans = reels.map((r, i) => {
-        if (i < leadBlanks) return { skip:true };
-
-        const targetDigit = targets[i - leadBlanks];
+        const targetDigit = targets[i];
         const extraTurns = cryptoIntInclusive(extraTurnsMin, extraTurnsMax);
 
         const currentIndex = Math.round(r.offset / digitH) % 10;
@@ -705,8 +707,8 @@
         const startOffset = r.offset;
         const endOffset = startOffset + totalSteps * digitH;
 
-        const duration = totalDuration + (i - leadBlanks) * stagger;
-        return { skip:false, startOffset, endOffset, duration };
+        const duration = totalDuration + i * stagger;
+        return { startOffset, endOffset, duration };
       });
 
       return new Promise(resolve => {
@@ -715,8 +717,6 @@
 
           reels.forEach((r, i) => {
             const p = plans[i];
-            if (p.skip) return;
-
             const t = Math.min(1, (now - startTime) / p.duration);
             const eased = easeOutCubic(t);
             const current = p.startOffset + (p.endOffset - p.startOffset) * eased;
@@ -738,22 +738,6 @@
       });
     }
 
-    function ensureReelCount(){
-      const Amax = Number(aMaxEl.value || 0);
-      const Bmax = Number(bMaxEl.value || 0);
-      const maxVal = Math.max(Amax, Bmax, 0);
-      const digits = Math.max(1, String(maxVal).length);
-      if (reels.length !== digits) makeReels(digits);
-
-      // keep blank until draw
-      reels.forEach(r => r.inner.style.opacity = "0");
-    }
-
-    aMaxEl.addEventListener("input", ensureReelCount);
-    bMaxEl.addEventListener("input", ensureReelCount);
-    ensureReelCount();
-
-    // ---------- main draw ----------
     drawBtn.addEventListener("click", async () => {
       try{
         const host = (hostEl.value || "").trim();
@@ -781,8 +765,10 @@
         const stamp = nowStamp();
         const sessionId = getSessionId();
 
-        const finalRaw = String(result); // e.g. "10005" or "01234" not possible with your ranges, but 0 in middle is.
-        await spinToNumberWithLeadingBlank(finalRaw);
+        // ✅ NEW: always show full reel count by padding with leading zeros
+        const digits = reels.length;
+        const finalPadded = String(result).padStart(digits, "0"); // e.g. 5678 -> 05678
+        await spinToNumber(finalPadded);
 
         stageEl.classList.add("reveal");
         slotLabelEl.textContent = "Winner revealed!";
@@ -795,7 +781,8 @@
         const entry = {
           drawName: "Wednesday MONSTER Members Draw",
           host,
-          result,
+          result,                 // actual number
+          displayNumber: finalPadded, // what staff saw (handy)
           chosenRange: chosen,
           seriesA: `${A.min}-${A.max}`,
           seriesB: `${B.min}-${B.max}`,
